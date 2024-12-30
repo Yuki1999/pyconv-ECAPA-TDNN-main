@@ -6,6 +6,27 @@ import numpy as np
 import math, torch, torchaudio
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+class ASNorm(nn.Module):
+    def __init__(self, num_impostors=300):
+        super(ASNorm, self).__init__()
+        self.num_impostors = num_impostors
+
+    def forward(self, target_scores, impostor_scores):
+        """
+        target_scores: 目标说话人的得分 (batch_size,)
+        impostor_scores: 冒名顶替者的得分 (batch_size, num_impostors)
+        """
+        # 计算冒名顶替者得分的均值和标准差
+        impostor_mean = torch.mean(impostor_scores, dim=1, keepdim=True)
+        impostor_std = torch.std(impostor_scores, dim=1, keepdim=True)
+
+        # 归一化目标得分
+        normalized_scores = (target_scores - impostor_mean) / impostor_std
+
+        return normalized_scores
+
 class PyConv1d(nn.Module):
     """PyConv1d with padding (general case). Applies a 1D PyConv over an input signal composed of several input planes.
     Args:
@@ -211,6 +232,8 @@ class ECAPA_TDNN(nn.Module):
         self.fc6 = nn.Linear(3072, 192)
         self.bn6 = nn.BatchNorm1d(192)
 
+        # 添加 AS-Norm
+        self.as_norm = ASNorm(num_impostors=300)
 
     def forward(self, x, aug):
         with torch.no_grad():
@@ -246,3 +269,11 @@ class ECAPA_TDNN(nn.Module):
         x = self.bn6(x)
 
         return x
+
+    def score_with_as_norm(self, target_scores, impostor_scores):
+        """
+        使用 AS-Norm 计算归一化得分
+        target_scores: 目标说话人的得分 (batch_size,)
+        impostor_scores: 冒名顶替者的得分 (batch_size, num_impostors)
+        """
+        return self.as_norm(target_scores, impostor_scores)

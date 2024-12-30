@@ -77,26 +77,56 @@ class ECAPAModel(nn.Module):
 				embedding_2 = self.speaker_encoder.forward(data_2, aug = False)
 				embedding_2 = F.normalize(embedding_2, p=2, dim=1)
 			embeddings[file] = [embedding_1, embedding_2]
-		scores, labels  = [], []
 
-		for line in lines:			
+		# scores, labels  = [], []
+		#
+		# for line in lines:
+		# 	embedding_11, embedding_12 = embeddings[line.split()[1]]
+		# 	embedding_21, embedding_22 = embeddings[line.split()[2]]
+		# 	# Compute the scores
+		# 	score_1 = torch.mean(torch.matmul(embedding_11, embedding_21.T)) # higher is positive
+		# 	score_2 = torch.mean(torch.matmul(embedding_12, embedding_22.T))
+		# 	score = (score_1 + score_2) / 2
+		# 	score = score.detach().cpu().numpy()
+		# 	scores.append(score)
+		# 	labels.append(int(line.split()[0]))
+		#
+		# # Coumpute EER and minDCF
+		# EER = tuneThresholdfromScore(scores, labels, [1, 0.1])[1]
+		# fnrs, fprs, thresholds = ComputeErrorRates(scores, labels)
+		# minDCF, _ = ComputeMinDcf(fnrs, fprs, thresholds, 0.05, 1, 1)
+		#
+		# return EER, minDCF
+	# 计算目标得分和冒名顶替者得分
+		target_scores, impostor_scores, labels = [], [], []
+		for line in lines:
 			embedding_11, embedding_12 = embeddings[line.split()[1]]
 			embedding_21, embedding_22 = embeddings[line.split()[2]]
-			# Compute the scores
-			score_1 = torch.mean(torch.matmul(embedding_11, embedding_21.T)) # higher is positive
+			# 计算目标得分
+			score_1 = torch.mean(torch.matmul(embedding_11, embedding_21.T))  # higher is positive
 			score_2 = torch.mean(torch.matmul(embedding_12, embedding_22.T))
 			score = (score_1 + score_2) / 2
-			score = score.detach().cpu().numpy()
-			scores.append(score)
+			target_scores.append(score.detach().cpu().numpy())
 			labels.append(int(line.split()[0]))
-			
-		# Coumpute EER and minDCF
-		EER = tuneThresholdfromScore(scores, labels, [1, 0.1])[1]
-		fnrs, fprs, thresholds = ComputeErrorRates(scores, labels)
+
+			# 随机生成冒名顶替者得分（示例）
+			impostor_score = numpy.random.uniform(low=-1, high=1, size=300)  # 300 个冒名顶替者得分
+			impostor_scores.append(impostor_score)
+
+		# 使用 AS-Norm 进行归一化
+		target_scores = numpy.array(target_scores)
+		impostor_scores = numpy.array(impostor_scores)
+		normalized_scores = self.speaker_encoder.score_with_as_norm(
+			torch.tensor(target_scores), torch.tensor(impostor_scores)
+		).numpy()
+
+		# 计算 EER 和 minDCF
+		EER = tuneThresholdfromScore(normalized_scores, labels, [1, 0.1])[1]
+		fnrs, fprs, thresholds = ComputeErrorRates(normalized_scores, labels)
 		minDCF, _ = ComputeMinDcf(fnrs, fprs, thresholds, 0.05, 1, 1)
 
+		self.train()  # 恢复模型为训练模式
 		return EER, minDCF
-
 	def save_parameters(self, path):
 		torch.save(self.state_dict(), path)
 
